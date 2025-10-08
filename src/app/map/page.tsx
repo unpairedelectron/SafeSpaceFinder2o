@@ -1,286 +1,345 @@
-'use client'
+'use client';
 
-import { useState, useEffect } from 'react'
-import Header from '@/components/Header'
-import { 
-  MapPin, 
-  Navigation, 
-  ZoomIn, 
-  ZoomOut,
-  Layers,
-  Filter,
-  Search,
-  Star,
-  Shield,
-  X
-} from 'lucide-react'
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
+import { GoogleMap, useLoadScript, Marker, InfoWindow } from '@react-google-maps/api';
+import { Search, Filter, Navigation, Loader2, MapPin } from 'lucide-react';
 
-// Mock businesses with coordinates
-const mockBusinesses = [
-  {
-    id: '1',
-    name: 'Rainbow Café',
-    type: 'Coffee Shop',
-    address: '123 Main St, Downtown',
-    lat: 40.7128,
-    lng: -74.0060,
-    rating: 4.8,
-    safetyScore: 95,
-    features: ['lgbtq-friendly', 'wheelchair-accessible', 'quiet-space']
-  },
-  {
-    id: '2',
-    name: 'Accessible Eats',
-    type: 'Restaurant',
-    address: '456 Oak Ave, Midtown',
-    lat: 40.7580,
-    lng: -73.9855,
-    rating: 4.6,
-    safetyScore: 92,
-    features: ['wheelchair-accessible', 'autism-friendly', 'sign-language']
-  },
-  {
-    id: '3',
-    name: 'Peaceful Gardens',
-    type: 'Park',
-    address: '789 Green Blvd, Westside',
-    lat: 40.7489,
-    lng: -73.9680,
-    rating: 4.9,
-    safetyScore: 88,
-    features: ['quiet-space', 'wheelchair-accessible', 'meditation-area']
-  },
-  {
-    id: '4',
-    name: 'Inclusive Yoga Studio',
-    type: 'Fitness',
-    address: '321 Wellness Way',
-    lat: 40.7282,
-    lng: -74.0776,
-    rating: 4.7,
-    safetyScore: 94,
-    features: ['lgbtq-friendly', 'wheelchair-accessible', 'quiet-space']
-  }
-]
+const libraries: ('places' | 'geometry')[] = ['places', 'geometry'];
+
+const mapContainerStyle = {
+  width: '100%',
+  height: 'calc(100vh - 64px)',
+};
+
+const defaultCenter = {
+  lat: 37.7749,
+  lng: -122.4194,
+};
+
+interface Business {
+  _id?: string;
+  id?: string;
+  name: string;
+  category: string;
+  address: string;
+  coordinates: {
+    lat: number;
+    lng: number;
+  };
+  safetyScore: number;
+  features: {
+    accessibility?: string[];
+    identity?: string[];
+    neurodiversity?: string[];
+  };
+  photos?: string[];
+}
 
 export default function MapPage() {
-  const [selectedBusiness, setSelectedBusiness] = useState<any>(null)
-  const [showFilters, setShowFilters] = useState(false)
-  const [mapStyle, setMapStyle] = useState('standard')
-  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null)
-  const [searchQuery, setSearchQuery] = useState('')
+  const { isLoaded, loadError } = useLoadScript({
+    googleMapsApiKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || '',
+    libraries,
+  });
 
+  const [center, setCenter] = useState(defaultCenter);
+  const [zoom, setZoom] = useState(12);
+  const [selectedBusiness, setSelectedBusiness] = useState<Business | null>(null);
+  const [businesses, setBusinesses] = useState<Business[]>([]);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  // Fetch businesses when map loads
   useEffect(() => {
-    // Get user's location
-    if (navigator.geolocation) {
+    fetchBusinesses();
+  }, []);
+
+  const fetchBusinesses = async () => {
+    setLoading(true);
+    try {
+      const response = await fetch('/api/businesses');
+      const data = await response.json();
+      setBusinesses(data.businesses || []);
+    } catch (error) {
+      console.error('Error fetching businesses:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Get user's current location
+  const handleGetLocation = useCallback(() => {
+    if ('geolocation' in navigator) {
       navigator.geolocation.getCurrentPosition(
         (position) => {
-          setUserLocation({
+          const newCenter = {
             lat: position.coords.latitude,
-            lng: position.coords.longitude
-          })
+            lng: position.coords.longitude,
+          };
+          setCenter(newCenter);
+          setZoom(14);
         },
         (error) => {
-          console.error('Error getting location:', error)
+          console.error('Error getting location:', error);
+          alert('Unable to get your location. Please enable location services.');
         }
-      )
+      );
+    } else {
+      alert('Geolocation is not supported by your browser.');
     }
-  }, [])
+  }, []);
 
-  const getSafetyColor = (score: number) => {
-    if (score >= 90) return 'bg-success-500'
-    if (score >= 80) return 'bg-warning-500'
-    return 'bg-red-500'
+  // Search businesses
+  const handleSearch = async () => {
+    if (!searchTerm.trim()) {
+      fetchBusinesses();
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const response = await fetch(`/api/businesses?search=${encodeURIComponent(searchTerm)}`);
+      const data = await response.json();
+      setBusinesses(data.businesses || []);
+    } catch (error) {
+      console.error('Error searching businesses:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Custom map options
+  const mapOptions = useMemo<google.maps.MapOptions>(
+    () => ({
+      disableDefaultUI: false,
+      clickableIcons: false,
+      scrollwheel: true,
+      zoomControl: true,
+      mapTypeControl: false,
+      streetViewControl: false,
+      fullscreenControl: true,
+      styles: [
+        {
+          featureType: 'poi',
+          elementType: 'labels',
+          stylers: [{ visibility: 'off' }],
+        },
+      ],
+    }),
+    []
+  );
+
+  // Get marker color based on safety score
+  const getMarkerColor = (safetyScore: number): string => {
+    if (safetyScore >= 80) return '#10b981'; // green
+    if (safetyScore >= 60) return '#f59e0b'; // yellow
+    return '#ef4444'; // red
+  };
+
+  // Flatten features array for display
+  const getFeaturesArray = (business: Business): string[] => {
+    const features: string[] = [];
+    if (business.features?.accessibility) features.push(...business.features.accessibility);
+    if (business.features?.identity) features.push(...business.features.identity);
+    if (business.features?.neurodiversity) features.push(...business.features.neurodiversity);
+    return features;
+  };
+
+  if (loadError) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
+        <div className="text-center max-w-md p-8 bg-white dark:bg-gray-800 rounded-lg shadow-lg">
+          <div className="mb-4 text-red-500">
+            <MapPin className="h-12 w-12 mx-auto" />
+          </div>
+          <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-2">
+            Map Failed to Load
+          </h2>
+          <p className="text-gray-600 dark:text-gray-400 mb-4">
+            {loadError.message || 'Unable to load Google Maps'}
+          </p>
+          <div className="text-sm text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-700 p-4 rounded-lg">
+            <p className="font-semibold mb-2">Possible reasons:</p>
+            <ul className="text-left space-y-1">
+              <li>• Google Maps API key not configured</li>
+              <li>• API key restrictions preventing access</li>
+              <li>• Billing not enabled on Google Cloud</li>
+            </ul>
+            <p className="mt-4 text-xs">
+              Check your <code className="px-1 py-0.5 bg-gray-200 dark:bg-gray-600 rounded">NEXT_PUBLIC_GOOGLE_MAPS_API_KEY</code> in .env.local
+            </p>
+          </div>
+          <button
+            onClick={() => window.location.reload()}
+            className="mt-4 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isLoaded) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
+        <div className="text-center">
+          <Loader2 className="h-12 w-12 animate-spin text-primary-600 mx-auto mb-4" />
+          <p className="text-gray-600 dark:text-gray-400">Loading map...</p>
+          <p className="text-sm text-gray-500 dark:text-gray-500 mt-2">
+            {!process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY && 
+              '⚠️ Google Maps API key not found'}
+          </p>
+        </div>
+      </div>
+    );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <Header />
-
-      <div className="relative h-[calc(100vh-4rem)]">
-        {/* Map Controls - Top */}
-        <div className="absolute top-4 left-4 right-4 z-10 flex flex-col sm:flex-row gap-4">
-          {/* Search Bar */}
-          <div className="flex-1 bg-white rounded-lg shadow-lg">
-            <div className="flex items-center p-3">
-              <Search className="h-5 w-5 text-gray-400 mr-3" />
-              <input
-                type="text"
-                placeholder="Search on map..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="flex-1 outline-none text-gray-900"
-              />
-              <button className="ml-2 p-2 hover:bg-gray-100 rounded-lg transition-colors">
-                <Navigation className="h-5 w-5 text-primary-600" />
-              </button>
-            </div>
-          </div>
-
-          {/* Map Controls */}
-          <div className="flex gap-2">
-            <button
-              onClick={() => setShowFilters(!showFilters)}
-              className="bg-white p-3 rounded-lg shadow-lg hover:bg-gray-50 transition-colors"
-            >
-              <Filter className="h-5 w-5 text-gray-700" />
-            </button>
-            <button className="bg-white p-3 rounded-lg shadow-lg hover:bg-gray-50 transition-colors">
-              <Layers className="h-5 w-5 text-gray-700" />
-            </button>
-          </div>
-        </div>
-
-        {/* Filters Panel */}
-        {showFilters && (
-          <div className="absolute top-24 left-4 z-10 bg-white rounded-lg shadow-lg p-4 w-80 max-h-[calc(100vh-10rem)] overflow-y-auto">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="font-semibold text-gray-900">Map Filters</h3>
-              <button onClick={() => setShowFilters(false)}>
-                <X className="h-5 w-5 text-gray-400" />
-              </button>
-            </div>
-            <div className="space-y-3">
-              <label className="flex items-center space-x-2 cursor-pointer">
-                <input type="checkbox" className="rounded text-primary-600" />
-                <span className="text-sm text-gray-700">LGBTQ+ Friendly</span>
-              </label>
-              <label className="flex items-center space-x-2 cursor-pointer">
-                <input type="checkbox" className="rounded text-primary-600" />
-                <span className="text-sm text-gray-700">Wheelchair Accessible</span>
-              </label>
-              <label className="flex items-center space-x-2 cursor-pointer">
-                <input type="checkbox" className="rounded text-primary-600" />
-                <span className="text-sm text-gray-700">Autism Friendly</span>
-              </label>
-              <label className="flex items-center space-x-2 cursor-pointer">
-                <input type="checkbox" className="rounded text-primary-600" />
-                <span className="text-sm text-gray-700">Quiet Spaces</span>
-              </label>
-            </div>
-            <div className="mt-4 pt-4 border-t border-gray-200">
-              <h4 className="font-medium text-gray-900 mb-2">Safety Score</h4>
-              <input
-                type="range"
-                min="0"
-                max="100"
-                className="w-full"
-              />
-              <div className="flex justify-between text-xs text-gray-600 mt-1">
-                <span>0%</span>
-                <span>100%</span>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Zoom Controls */}
-        <div className="absolute right-4 top-1/2 -translate-y-1/2 z-10 flex flex-col gap-2">
-          <button className="bg-white p-3 rounded-lg shadow-lg hover:bg-gray-50 transition-colors">
-            <ZoomIn className="h-5 w-5 text-gray-700" />
-          </button>
-          <button className="bg-white p-3 rounded-lg shadow-lg hover:bg-gray-50 transition-colors">
-            <ZoomOut className="h-5 w-5 text-gray-700" />
-          </button>
-          <button className="bg-white p-3 rounded-lg shadow-lg hover:bg-gray-50 transition-colors">
-            <Navigation className="h-5 w-5 text-gray-700" />
+    <div className="relative h-screen">
+      {/* Search and Filter Bar */}
+      <div className="absolute top-4 left-4 right-4 z-10 flex gap-2">
+        <div className="flex-1 bg-white rounded-lg shadow-lg p-2 flex items-center gap-2">
+          <Search className="h-5 w-5 text-gray-400 ml-2" />
+          <input
+            type="text"
+            placeholder="Search for safe spaces..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
+            className="flex-1 px-2 py-2 focus:outline-none"
+          />
+          <button 
+            onClick={handleSearch}
+            className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition-colors"
+          >
+            Search
           </button>
         </div>
+        <button 
+          onClick={handleGetLocation}
+          className="bg-white rounded-lg shadow-lg p-3 hover:bg-gray-50 transition-colors"
+          title="Get my location"
+        >
+          <Navigation className="h-5 w-5 text-gray-600" />
+        </button>
+      </div>
 
-        {/* Map Display Area */}
-        <div className="w-full h-full bg-gray-200 relative">
-          {/* Placeholder map - In production, use Google Maps or Mapbox */}
-          <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-blue-100 to-green-100">
-            <div className="text-center">
-              <MapPin className="h-16 w-16 text-primary-600 mx-auto mb-4" />
-              <p className="text-gray-600 text-lg font-medium">Interactive Map View</p>
-              <p className="text-gray-500 text-sm mt-2">
-                Integrate Google Maps or Mapbox API here
-              </p>
-            </div>
-          </div>
-
-          {/* Mock Business Markers */}
-          {mockBusinesses.map((business, index) => (
-            <button
-              key={business.id}
+      {/* Map */}
+      <GoogleMap
+        mapContainerStyle={mapContainerStyle}
+        center={center}
+        zoom={zoom}
+        options={mapOptions}
+        onClick={() => setSelectedBusiness(null)}
+      >
+        {/* Business Markers */}
+        {businesses.map((business) => {
+          const businessId = business._id || business.id || '';
+          return (
+            <Marker
+              key={businessId}
+              position={business.coordinates}
               onClick={() => setSelectedBusiness(business)}
-              className={`absolute ${getSafetyColor(business.safetyScore)} w-10 h-10 rounded-full shadow-lg flex items-center justify-center transition-transform hover:scale-110`}
-              style={{
-                top: `${20 + index * 15}%`,
-                left: `${30 + index * 10}%`
+              title={business.name}
+              icon={{
+                path: google.maps.SymbolPath.CIRCLE,
+                scale: 10,
+                fillColor: getMarkerColor(business.safetyScore),
+                fillOpacity: 0.9,
+                strokeWeight: 2,
+                strokeColor: '#ffffff',
               }}
-            >
-              <MapPin className="h-6 w-6 text-white" />
-            </button>
-          ))}
-        </div>
+            />
+          );
+        })}
 
-        {/* Business Info Card */}
+        {/* Info Window for selected business */}
         {selectedBusiness && (
-          <div className="absolute bottom-4 left-4 right-4 sm:left-auto sm:w-96 z-10 bg-white rounded-lg shadow-xl p-4">
-            <button
-              onClick={() => setSelectedBusiness(null)}
-              className="absolute top-2 right-2 p-1 hover:bg-gray-100 rounded-full"
-            >
-              <X className="h-5 w-5 text-gray-400" />
-            </button>
-
-            <div className="pr-8">
-              <div className="flex items-start justify-between mb-3">
-                <div>
-                  <h3 className="font-bold text-lg text-gray-900">{selectedBusiness.name}</h3>
-                  <p className="text-sm text-gray-600">{selectedBusiness.type}</p>
+          <InfoWindow
+            position={selectedBusiness.coordinates}
+            onCloseClick={() => setSelectedBusiness(null)}
+          >
+            <div className="p-2 max-w-xs">
+              <h3 className="font-bold text-lg mb-1">{selectedBusiness.name}</h3>
+              <p className="text-sm text-gray-600 mb-2">{selectedBusiness.category}</p>
+              
+              {/* Safety Score Bar */}
+              <div className="flex items-center gap-2 mb-2">
+                <div className="flex-1 bg-gray-200 rounded-full h-2">
+                  <div
+                    className="h-2 rounded-full"
+                    style={{ 
+                      width: `${selectedBusiness.safetyScore}%`,
+                      backgroundColor: getMarkerColor(selectedBusiness.safetyScore)
+                    }}
+                  />
                 </div>
+                <span className="text-sm font-medium">{selectedBusiness.safetyScore}</span>
               </div>
-
-              <div className="flex items-center space-x-4 mb-3">
-                <div className="flex items-center space-x-1">
-                  <Star className="h-4 w-4 text-yellow-400 fill-current" />
-                  <span className="text-sm font-medium text-gray-900">{selectedBusiness.rating}</span>
-                </div>
-                <div className="flex items-center space-x-1">
-                  <Shield className={`h-4 w-4 ${getSafetyColor(selectedBusiness.safetyScore).replace('bg-', 'text-')}`} />
-                  <span className="text-sm text-gray-600">{selectedBusiness.safetyScore}% safe</span>
-                </div>
+              
+              <p className="text-xs text-gray-500 mb-2">{selectedBusiness.address}</p>
+              
+              {/* Features */}
+              <div className="flex flex-wrap gap-1 mb-3">
+                {getFeaturesArray(selectedBusiness).slice(0, 3).map((feature, idx) => (
+                  <span
+                    key={idx}
+                    className="px-2 py-1 bg-indigo-100 text-indigo-700 text-xs rounded-full"
+                  >
+                    {feature.replace(/-/g, ' ')}
+                  </span>
+                ))}
+                {getFeaturesArray(selectedBusiness).length > 3 && (
+                  <span className="px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded-full">
+                    +{getFeaturesArray(selectedBusiness).length - 3} more
+                  </span>
+                )}
               </div>
-
-              <p className="text-sm text-gray-600 mb-4">
-                <MapPin className="h-4 w-4 inline mr-1" />
-                {selectedBusiness.address}
-              </p>
-
-              <div className="flex gap-2">
-                <button className="flex-1 bg-primary-600 text-white py-2 px-4 rounded-lg hover:bg-primary-700 transition-colors text-sm font-medium">
-                  Get Directions
-                </button>
-                <button className="flex-1 border border-gray-300 text-gray-700 py-2 px-4 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium">
-                  View Details
-                </button>
-              </div>
+              
+              <a
+                href={`/business/${selectedBusiness._id || selectedBusiness.id}`}
+                className="block text-center px-4 py-2 bg-indigo-600 text-white text-sm rounded-md hover:bg-indigo-700 transition-colors"
+              >
+                View Details
+              </a>
             </div>
-          </div>
+          </InfoWindow>
         )}
+      </GoogleMap>
 
-        {/* Legend */}
-        <div className="absolute bottom-4 right-4 bg-white rounded-lg shadow-lg p-4 hidden md:block">
-          <h4 className="font-semibold text-gray-900 mb-3 text-sm">Safety Score</h4>
-          <div className="space-y-2">
-            <div className="flex items-center space-x-2">
-              <div className="w-4 h-4 rounded-full bg-success-500"></div>
-              <span className="text-xs text-gray-600">90-100% Excellent</span>
-            </div>
-            <div className="flex items-center space-x-2">
-              <div className="w-4 h-4 rounded-full bg-warning-500"></div>
-              <span className="text-xs text-gray-600">80-89% Good</span>
-            </div>
-            <div className="flex items-center space-x-2">
-              <div className="w-4 h-4 rounded-full bg-red-500"></div>
-              <span className="text-xs text-gray-600">Below 80%</span>
-            </div>
+      {/* Loading Indicator */}
+      {loading && (
+        <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 bg-white rounded-lg shadow-lg px-4 py-2 flex items-center gap-2">
+          <Loader2 className="h-4 w-4 text-indigo-600 animate-spin" />
+          <p className="text-sm text-gray-600">Loading businesses...</p>
+        </div>
+      )}
+
+      {/* Business Count */}
+      <div className="absolute bottom-4 left-4 bg-white rounded-lg shadow-lg px-4 py-2">
+        <p className="text-sm font-medium">
+          <span className="text-indigo-600">{businesses.length}</span> safe space{businesses.length !== 1 ? 's' : ''} found
+        </p>
+      </div>
+
+      {/* Legend */}
+      <div className="absolute bottom-4 right-4 bg-white rounded-lg shadow-lg p-4">
+        <p className="text-xs font-semibold text-gray-700 mb-2">Safety Score</p>
+        <div className="space-y-1">
+          <div className="flex items-center gap-2">
+            <div className="w-3 h-3 rounded-full bg-green-500"></div>
+            <span className="text-xs text-gray-600">80-100 (Excellent)</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-3 h-3 rounded-full bg-yellow-500"></div>
+            <span className="text-xs text-gray-600">60-79 (Good)</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-3 h-3 rounded-full bg-red-500"></div>
+            <span className="text-xs text-gray-600">0-59 (Fair)</span>
           </div>
         </div>
       </div>
     </div>
-  )
+  );
 }

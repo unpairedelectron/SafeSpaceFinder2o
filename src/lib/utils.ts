@@ -165,10 +165,11 @@ function toRad(deg: number): number {
 /**
  * Format distance for display
  */
-export function formatDistance(miles: number): string {
-  if (miles < 0.1) return 'Less than 0.1 miles'
-  if (miles < 1) return `${(miles * 5280).toFixed(0)} feet`
-  return `${miles.toFixed(1)} miles`
+export function formatDistance(meters: number): string {
+  if (meters < 1000) {
+    return `${Math.round(meters)}m`
+  }
+  return `${(meters / 1000).toFixed(1)}km`
 }
 
 /**
@@ -244,16 +245,31 @@ export function debounce<T extends (...args: any[]) => any>(
   func: T,
   wait: number
 ): (...args: Parameters<T>) => void {
-  let timeout: NodeJS.Timeout | null = null
-  
+  let timeout: NodeJS.Timeout
   return function executedFunction(...args: Parameters<T>) {
     const later = () => {
-      timeout = null
+      clearTimeout(timeout)
       func(...args)
     }
-    
-    if (timeout) clearTimeout(timeout)
+    clearTimeout(timeout)
     timeout = setTimeout(later, wait)
+  }
+}
+
+/**
+ * Throttle function
+ */
+export function throttle<T extends (...args: any[]) => any>(
+  func: T,
+  limit: number
+): (...args: Parameters<T>) => void {
+  let inThrottle: boolean
+  return function executedFunction(...args: Parameters<T>) {
+    if (!inThrottle) {
+      func(...args)
+      inThrottle = true
+      setTimeout(() => (inThrottle = false), limit)
+    }
   }
 }
 
