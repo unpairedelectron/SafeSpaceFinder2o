@@ -146,34 +146,51 @@ export default function MapPage() {
 
   if (loadError) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
-        <div className="text-center max-w-md p-8 bg-white dark:bg-gray-800 rounded-lg shadow-lg">
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 p-4">
+        <div className="text-center max-w-2xl w-full p-8 bg-white dark:bg-gray-800 rounded-lg shadow-lg">
           <div className="mb-4 text-red-500">
             <MapPin className="h-12 w-12 mx-auto" />
           </div>
-          <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-2">
-            Map Failed to Load
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
+            Google Maps API Error
           </h2>
           <p className="text-gray-600 dark:text-gray-400 mb-4">
             {loadError.message || 'Unable to load Google Maps'}
           </p>
-          <div className="text-sm text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-700 p-4 rounded-lg">
-            <p className="font-semibold mb-2">Possible reasons:</p>
-            <ul className="text-left space-y-1">
-              <li>• Google Maps API key not configured</li>
-              <li>• API key restrictions preventing access</li>
-              <li>• Billing not enabled on Google Cloud</li>
-            </ul>
-            <p className="mt-4 text-xs">
-              Check your <code className="px-1 py-0.5 bg-gray-200 dark:bg-gray-600 rounded">NEXT_PUBLIC_GOOGLE_MAPS_API_KEY</code> in .env.local
+          
+          <div className="text-sm text-gray-500 dark:text-gray-400 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 p-4 rounded-lg mb-4">
+            <p className="font-semibold mb-2 text-red-700 dark:text-red-400">⚠️ Setup Required</p>
+            <ol className="text-left space-y-2 ml-4 list-decimal">
+              <li><strong>Enable APIs:</strong> Go to Google Cloud Console → APIs & Services → Library</li>
+              <li>Enable <strong>"Maps JavaScript API"</strong> and <strong>"Places API"</strong></li>
+              <li><strong>Configure API Key:</strong> Add HTTP referrers (localhost:3000)</li>
+              <li><strong>Enable Billing:</strong> Required for Maps API ($200/month free credit)</li>
+            </ol>
+            <p className="mt-3 text-xs">
+              📖 Detailed instructions: <code className="px-1 py-0.5 bg-gray-200 dark:bg-gray-700 rounded">GOOGLE_MAPS_SETUP.md</code>
             </p>
           </div>
-          <button
-            onClick={() => window.location.reload()}
-            className="mt-4 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
-          >
-            Retry
-          </button>
+
+          <div className="flex gap-3 justify-center">
+            <button
+              onClick={() => window.location.reload()}
+              className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+            >
+              Retry
+            </button>
+            <a
+              href="https://console.cloud.google.com/apis/library"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
+            >
+              Open Google Cloud Console
+            </a>
+          </div>
+          
+          <div className="mt-6 text-xs text-gray-500 dark:text-gray-400">
+            <p>Current API Key: {process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ? '✓ Configured' : '✗ Missing'}</p>
+          </div>
         </div>
       </div>
     );
